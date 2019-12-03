@@ -1,2 +1,8 @@
 ---
 # defaults file for asg-spot-ecs-cluster-role/
+
+asg_min_instances: 0
+asg_max_instances: 200
+asg_desired_instances: 1
+
+assign_public_ip: false

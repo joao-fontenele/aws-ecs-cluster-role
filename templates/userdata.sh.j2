@@ -1,0 +1,118 @@
+#!/bin/bash
+
+set -eux
+
+# register into cluster
+mkdir -p /etc/ecs
+echo "ECS_CLUSTER={{ ecs_cluster_name }}" >> /etc/ecs/ecs.config
+
+# set environment variables for instance termination handler service
+
+mkdir -p /etc/drain-handler
+echo "ASG_NAME={{ asg_name }}" >> /etc/drain-handler/env.config
+echo "ASG_LIFECYCLE_HOOK_NAME={{ asg_termination_hook_name }}" >> /etc/drain-handler/env.config
+echo "ECS_CLUSTER_NAME={{ ecs_cluster_name }}" >> /etc/drain-handler/env.config
+
+# install dependencies
+yum -y install jq
+easy_install pip
+pip install awscli
+
+# create instance termination upstart service
+cat > /lib/systemd/system/drain-handler.service <<'EOF'
+[Unit]
+Description=Watches possible events that may cause the instance to be terminated, and dry it before termination.
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=1
+EnvironmentFile=/etc/drain-handler/env.config
+ExecStart=/bin/bash /usr/bin/drain-handler.sh
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# create script that has logic to drain the ecs instances when needed
+cat > /usr/bin/drain-handler.sh <<'EOF'
+#!/bin/bash
+
+MODULE="drain-handler.sh"
+INSTANCE_ID=$(curl http://169.254.169.254/latest/meta-data/instance-id)
+SPOT_TERMINATION_WAIT_TIME=120
+CHECK_INTERVAL=10
+/usr/bin/aws configure set default.region {{ region }}
+
+drain_container_instance() {
+  STATUS=DRAINING
+  CONTAINER_INSTANCE=$(curl -s http://localhost:51678/v1/metadata | jq -r .ContainerInstanceArn)
+
+  echo "[${MODULE}]: putting instance in state ${STATUS}"
+  logger "[${MODULE}]: putting instance in state ${STATUS}"
+
+  /usr/bin/aws ecs update-container-instances-state --cluster ${ECS_CLUSTER_NAME} --container-instances ${CONTAINER_INSTANCE} --status ${STATUS}
+}
+
+check_spot_termination() {
+  if [ -z $(curl -Isf http://169.254.169.254/latest/meta-data/spot/termination-time)]; then
+    echo "no spot termination notice found"
+    /bin/false
+  else
+    echo "[${MODULE}]: SPOT instance termination notice detected"
+    logger "[${MODULE}]: SPOT instance termination notice detected"
+
+    # set this instance to draining state
+    drain_container_instance
+
+    echo "[${MODULE}]: sleeping until SPOT termination"
+    logger "[${MODULE}]: sleeping until SPOT termination"
+
+    # await spot termination time, to kill the instance
+    /bin/sleep ${SPOT_TERMINATION_WAIT_TIME}
+  fi
+}
+
+check_asg_lifecycle_termination() {
+  LIFECYCLE_STATE=$(/usr/bin/aws autoscaling describe-auto-scaling-instances --instance-id ${INSTANCE_ID} | jq -r .AutoScalingInstances[0].LifecycleState)
+
+  if [ ${LIFECYCLE_STATE} == "Terminating:Wait" ]; then
+    echo "[${MODULE}]: ASG instance termination notice detected"
+    logger "[${MODULE}]: ASG instance termination notice detected"
+
+    # set this instance to draining state
+    drain_container_instance
+    CONTAINER_INSTANCE=$(curl -s http://localhost:51678/v1/metadata | jq -r .ContainerInstanceArn)
+
+    while sleep ${CHECK_INTERVAL}; do
+      RUNNING_TASKS=$(/usr/bin/aws ecs describe-container-instances --cluster ${ECS_CLUSTER_NAME} --container-instances ${CONTAINER_INSTANCE}| jq -r .containerInstances[].runningTasksCount)
+
+      # if there are tasks still running continue in loop
+      if [ ${RUNNING_TASKS} -gt 0 ]; then
+        /bin/false
+      else
+        echo "[${MODULE}]" there are no more tasks running in the container instance
+        logger "[${MODULE}]" there are no more tasks running in the container instance
+        break
+      fi
+    done
+
+    /usr/bin/aws autoscaling complete-lifecycle-action --instance-id ${INSTANCE_ID} --lifecycle-hook-name ${ASG_LIFECYCLE_HOOK_NAME} --auto-scaling-group-name ${ASG_NAME} --lifecycle-action-result CONTINUE
+  else
+    echo "no asg termination notice found"
+    /bin/false
+  fi
+}
+
+while sleep ${CHECK_INTERVAL}; do
+  check_spot_termination
+
+  check_asg_lifecycle_termination
+done
+EOF
+
+chmod +x /usr/bin/drain-handler.sh
+
+# start and enable instance termination handler service
+systemctl enable drain-handler.service
+systemctl start drain-handler.service
