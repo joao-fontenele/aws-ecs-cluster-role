@@ -1,8 +1,20 @@
 ---
 # defaults file for asg-spot-ecs-cluster-role/
 
-asg_min_instances: 0
-asg_max_instances: 200
+region: us-east-1
+
+instance_type: t2.micro
+
+alarm_interval: 300
+autoscaling_cooldown: 120
+
+asg_min_instances: 1
+asg_max_instances: 100
 asg_desired_instances: 1
 
 assign_public_ip: false
+
+asg_prefix: ""
+
+cpu_scale_out_threshold: 60
+cpu_scale_in_threshold: 15

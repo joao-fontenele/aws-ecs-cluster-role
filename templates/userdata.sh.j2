@@ -38,6 +38,8 @@ EOF
 cat > /usr/bin/drain-handler.sh <<'EOF'
 #!/bin/bash
 
+# set -eux
+
 MODULE="drain-handler.sh"
 INSTANCE_ID=$(curl http://169.254.169.254/latest/meta-data/instance-id)
 SPOT_TERMINATION_WAIT_TIME=120
@@ -55,7 +57,7 @@ drain_container_instance() {
 }
 
 check_spot_termination() {
-  if [ -z $(curl -Isf http://169.254.169.254/latest/meta-data/spot/termination-time)]; then
+  if [ -z $(curl -Isf http://169.254.169.254/latest/meta-data/spot/termination-time) ]; then
     echo "no spot termination notice found"
     /bin/false
   else
@@ -76,7 +78,7 @@ check_spot_termination() {
 check_asg_lifecycle_termination() {
   LIFECYCLE_STATE=$(/usr/bin/aws autoscaling describe-auto-scaling-instances --instance-id ${INSTANCE_ID} | jq -r .AutoScalingInstances[0].LifecycleState)
 
-  if [ ${LIFECYCLE_STATE} == "Terminating:Wait" ]; then
+  if [ "${LIFECYCLE_STATE}" == "Terminating:Wait" ]; then
     echo "[${MODULE}]: ASG instance termination notice detected"
     logger "[${MODULE}]: ASG instance termination notice detected"
 
@@ -91,8 +93,8 @@ check_asg_lifecycle_termination() {
       if [ ${RUNNING_TASKS} -gt 0 ]; then
         /bin/false
       else
-        echo "[${MODULE}]" there are no more tasks running in the container instance
-        logger "[${MODULE}]" there are no more tasks running in the container instance
+        echo "[${MODULE}] there are no more tasks running in the container instance"
+        logger "[${MODULE}] there are no more tasks running in the container instance"
         break
       fi
     done
