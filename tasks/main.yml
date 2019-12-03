@@ -1,2 +1,60 @@
 ---
 # tasks file for asg-spot-ecs-cluster-role/
+
+- name: "setup ecs cluster"
+  ecs_cluster:
+    state: present
+    name: "{{ ecs_cluster_name }}"
+
+- name: create iam role for instances
+  iam_role:
+    name: ecs-spot-instance-role
+    state: present
+    assume_role_policy_document: " {{ lookup('file', '../files/ecs-instance-assume-role.json') }} "
+    managed_policy: [] # need to create the role first, and then associate the policy with it
+  register: ecs_iam_role
+  tags:
+    - iam
+
+- name: create iam policy for ecs iam role
+  iam_policy:
+    policy_name: ecs-spot-instance-policy
+    state: present
+    iam_type: role
+    iam_name: ecs-spot-instance-role
+    policy_json: " {{ lookup('file', '../files/ecs-instance-policy.json') }} "
+  tags:
+    - iam
+
+- name: setup launch configuration
+  ec2_lc:
+    state: present
+    assign_public_ip: "{{ assign_public_ip }}"
+    name: "{{ lc_name }}"
+    instance_type: "{{ instance_type }}"
+    instance_profile_name: "{{ ecs_iam_role.role_name }}"
+    image_id: "{{ image_id }}"
+    key_name: "{{ key_name }}"
+    security_groups: "{{ security_groups }}"
+    user_data: "{{ lookup('template', 'userdata.sh.j2') }}"
+  register: launch_configuration
+
+- name: setup auto scale group
+  ec2_asg:
+    state: present
+    name: "{{ asg_name }}"
+    desired_capacity: "{{ asg_desired_instances }}"
+    min_size: "{{ asg_min_instances }}"
+    max_size: "{{ asg_max_instances }}"
+    launch_config_name: "{{ launch_configuration.name }}"
+    wait_for_instances: false
+    vpc_zone_identifier: "{{ subnet_ids }}"
+    tags: "{{ asg_tags }}"
+
+- name: setup asg termination lifecycle hook
+  ec2_asg_lifecycle_hook:
+    state: present
+    autoscaling_group_name: "{{ asg_name }}"
+    lifecycle_hook_name: "{{ asg_termination_hook_name }}"
+    transition: autoscaling:EC2_INSTANCE_TERMINATING
+    heartbeat_timeout: 600
