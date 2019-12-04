@@ -69,7 +69,7 @@
     name: "{{ asg_name }}-scale-in"
     adjustment_type: ChangeInCapacity
     asg_name: "{{ asg_name }}"
-    scaling_adjustment: -1
+    scaling_adjustment: "{{ scaling_step }}"
     min_adjustment_step: 1
     cooldown: "{{ autoscaling_cooldown }}"
   register: scale_in_policy
@@ -81,7 +81,7 @@
     name: "{{ asg_name }}-scale-out"
     adjustment_type: ChangeInCapacity
     asg_name: "{{ asg_name }}"
-    scaling_adjustment: 1
+    scaling_adjustment: "-{{ scaling_step }}"
     min_adjustment_step: 1
     cooldown: "{{ autoscaling_cooldown }}"
   register: scale_out_policy

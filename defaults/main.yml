@@ -12,6 +12,8 @@ asg_min_instances: 1
 asg_max_instances: 100
 asg_desired_instances: 1
 
+scaling_step: 1
+
 assign_public_ip: false
 
 asg_prefix: ""
