@@ -15,6 +15,7 @@
   register: ecs_iam_role
   tags:
     - iam
+    - asg
 
 - name: create iam policy for ecs iam role
   iam_policy:
@@ -25,6 +26,7 @@
     policy_json: " {{ lookup('file', '../files/ecs-instance-policy.json') }} "
   tags:
     - iam
+    - asg
 
 - name: setup launch configuration
   ec2_lc:
