@@ -3,9 +3,10 @@
 
 dt: "{{ ansible_date_time }}"
 ts: "{{ dt.year + dt.month + dt.day + dt.hour + dt.minute + dt.second }}"
-instance_type: t2.micro
 
-lc_name: "{{ ecs_cluster_name }}-{{ instance_type }}-{{ ts }}"
+base_name: "{{ asg_prefix }}{{ ecs_cluster_name }}-{{ instance_type }}"
 
-asg_name: "{{ ecs_cluster_name }}-{{instance_type }}-asg"
+lc_name: "{{ base_name }}-{{ ts }}"
+asg_name: "{{ base_name }}-asg"
+
 asg_termination_hook_name: "{{ asg_name | regex_replace('[^A-Za-z0-9\\-_\\/]', '-') }}-drain-termination-hook"

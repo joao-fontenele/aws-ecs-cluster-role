@@ -8,7 +8,7 @@
 
 - name: create iam role for instances
   iam_role:
-    name: ecs-spot-instance-role
+    name: ecs-drain-instance-role
     state: present
     assume_role_policy_document: " {{ lookup('file', '../files/ecs-instance-assume-role.json') }} "
     managed_policy: [] # need to create the role first, and then associate the policy with it
@@ -18,10 +18,10 @@
 
 - name: create iam policy for ecs iam role
   iam_policy:
-    policy_name: ecs-spot-instance-policy
+    policy_name: ecs-drain-instance-policy
     state: present
     iam_type: role
-    iam_name: ecs-spot-instance-role
+    iam_name: ecs-drain-instance-role
     policy_json: " {{ lookup('file', '../files/ecs-instance-policy.json') }} "
   tags:
     - iam
@@ -29,7 +29,9 @@
 - name: setup launch configuration
   ec2_lc:
     state: present
+    region: "{{ region }}"
     assign_public_ip: "{{ assign_public_ip }}"
+    spot_price: "{{ spot_price }}"
     name: "{{ lc_name }}"
     instance_type: "{{ instance_type }}"
     instance_profile_name: "{{ ecs_iam_role.role_name }}"
@@ -38,10 +40,13 @@
     security_groups: "{{ security_groups }}"
     user_data: "{{ lookup('template', 'userdata.sh.j2') }}"
   register: launch_configuration
+  tags:
+    - asg
 
 - name: setup auto scale group
   ec2_asg:
     state: present
+    region: "{{ region }}"
     name: "{{ asg_name }}"
     desired_capacity: "{{ asg_desired_instances }}"
     min_size: "{{ asg_min_instances }}"
@@ -50,11 +55,84 @@
     wait_for_instances: false
     vpc_zone_identifier: "{{ subnet_ids }}"
     tags: "{{ asg_tags }}"
+  tags:
+    - asg
 
 - name: setup asg termination lifecycle hook
   ec2_asg_lifecycle_hook:
     state: present
+    region: "{{ region }}"
     autoscaling_group_name: "{{ asg_name }}"
     lifecycle_hook_name: "{{ asg_termination_hook_name }}"
     transition: autoscaling:EC2_INSTANCE_TERMINATING
     heartbeat_timeout: 600
+  tags:
+    - asg
+
+- name: setup scale in policy
+  ec2_scaling_policy:
+    state: present
+    region: "{{ region }}"
+    name: "{{ asg_name }}-scale-in"
+    adjustment_type: ChangeInCapacity
+    asg_name: "{{ asg_name }}"
+    scaling_adjustment: "-{{ scaling_step }}"
+    min_adjustment_step: 1
+    cooldown: "{{ autoscaling_cooldown }}"
+  register: scale_in_policy
+  tags:
+    - scaling
+
+- name: setup scale out policy
+  ec2_scaling_policy:
+    state: present
+    region: "{{ region }}"
+    name: "{{ asg_name }}-scale-out"
+    adjustment_type: ChangeInCapacity
+    asg_name: "{{ asg_name }}"
+    scaling_adjustment: "{{ scaling_step }}"
+    min_adjustment_step: 1
+    cooldown: "{{ autoscaling_cooldown }}"
+  register: scale_out_policy
+  tags:
+    - scaling
+
+- name: setup scale in alarm
+  ec2_metric_alarm:
+    state: present
+    region: "{{ region }}"
+    name: "{{ asg_name }}-low-cpu"
+    metric: CPUUtilization
+    namespace: "AWS/EC2"
+    statistic: Average
+    comparison: "<="
+    threshold: "{{ cpu_scale_in_threshold }}"
+    period: "{{ alarm_interval }}"
+    evaluation_periods: 1
+    unit: "Percent"
+    dimensions:
+      AutoScalingGroupName: "{{ asg_name }}"
+    alarm_actions:
+    - "{{ scale_in_policy.arn }}"
+  tags:
+    - scaling
+
+- name: setup scale out alarm
+  ec2_metric_alarm:
+    state: present
+    region: "{{ region }}"
+    name: "{{ asg_name }}-high-cpu"
+    metric: CPUUtilization
+    namespace: "AWS/EC2"
+    statistic: Average
+    comparison: ">="
+    threshold: "{{ cpu_scale_out_threshold }}"
+    period: "{{ alarm_interval }}"
+    evaluation_periods: 1
+    unit: "Percent"
+    dimensions:
+      AutoScalingGroupName: "{{ asg_name }}"
+    alarm_actions:
+      - "{{ scale_out_policy.arn }}"
+  tags:
+    - scaling
