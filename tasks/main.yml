@@ -31,6 +31,7 @@
     state: present
     region: "{{ region }}"
     assign_public_ip: "{{ assign_public_ip }}"
+    spot_price: "{{ spot_price }}"
     name: "{{ lc_name }}"
     instance_type: "{{ instance_type }}"
     instance_profile_name: "{{ ecs_iam_role.role_name }}"
@@ -69,7 +70,7 @@
     name: "{{ asg_name }}-scale-in"
     adjustment_type: ChangeInCapacity
     asg_name: "{{ asg_name }}"
-    scaling_adjustment: "{{ scaling_step }}"
+    scaling_adjustment: "-{{ scaling_step }}"
     min_adjustment_step: 1
     cooldown: "{{ autoscaling_cooldown }}"
   register: scale_in_policy
@@ -81,7 +82,7 @@
     name: "{{ asg_name }}-scale-out"
     adjustment_type: ChangeInCapacity
     asg_name: "{{ asg_name }}"
-    scaling_adjustment: "-{{ scaling_step }}"
+    scaling_adjustment: "{{ scaling_step }}"
     min_adjustment_step: 1
     cooldown: "{{ autoscaling_cooldown }}"
   register: scale_out_policy

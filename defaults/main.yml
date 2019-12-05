@@ -9,14 +9,16 @@ alarm_interval: 300
 autoscaling_cooldown: 120
 
 asg_min_instances: 1
-asg_max_instances: 100
+asg_max_instances: 30
 asg_desired_instances: 1
 
 scaling_step: 1
+
+spot_price: null
 
 assign_public_ip: false
 
 asg_prefix: ""
 
-cpu_scale_out_threshold: 60
+cpu_scale_out_threshold: 50
 cpu_scale_in_threshold: 15
