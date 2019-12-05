@@ -40,6 +40,8 @@
     security_groups: "{{ security_groups }}"
     user_data: "{{ lookup('template', 'userdata.sh.j2') }}"
   register: launch_configuration
+  tags:
+    - asg
 
 - name: setup auto scale group
   ec2_asg:
@@ -53,6 +55,8 @@
     wait_for_instances: false
     vpc_zone_identifier: "{{ subnet_ids }}"
     tags: "{{ asg_tags }}"
+  tags:
+    - asg
 
 - name: setup asg termination lifecycle hook
   ec2_asg_lifecycle_hook:
@@ -62,6 +66,8 @@
     lifecycle_hook_name: "{{ asg_termination_hook_name }}"
     transition: autoscaling:EC2_INSTANCE_TERMINATING
     heartbeat_timeout: 600
+  tags:
+    - asg
 
 - name: setup scale in policy
   ec2_scaling_policy:
@@ -74,6 +80,8 @@
     min_adjustment_step: 1
     cooldown: "{{ autoscaling_cooldown }}"
   register: scale_in_policy
+  tags:
+    - scaling
 
 - name: setup scale out policy
   ec2_scaling_policy:
@@ -86,6 +94,8 @@
     min_adjustment_step: 1
     cooldown: "{{ autoscaling_cooldown }}"
   register: scale_out_policy
+  tags:
+    - scaling
 
 - name: setup scale in alarm
   ec2_metric_alarm:
@@ -104,6 +114,8 @@
       AutoScalingGroupName: "{{ asg_name }}"
     alarm_actions:
     - "{{ scale_in_policy.arn }}"
+  tags:
+    - scaling
 
 - name: setup scale out alarm
   ec2_metric_alarm:
@@ -122,3 +134,5 @@
       AutoScalingGroupName: "{{ asg_name }}"
     alarm_actions:
       - "{{ scale_out_policy.arn }}"
+  tags:
+    - scaling
